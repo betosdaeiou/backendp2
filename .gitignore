@@ -1,0 +1,43 @@
+# Environments
+.env
+.venv
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+
+# pytest
+.pytest_cache/
+
+# Databases
+*.sqlite3
+*.db
+*.code-workspace
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Uploaded files
+uploads/
+
+# Firebase credentials
+*firebase*.json
+firebase-service-account.json

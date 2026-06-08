@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: backend_postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: emergencia_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    container_name: backend_fastapi_app
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/emergencia_db
+      - SECRET_KEY=default-secret-key-change-me-in-production
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - GEMINI_API_KEY=pon_tu_api_key_aqui
+      - EMAIL_PROVIDER=brevo
+      - BREVO_API_KEY=
+      - RESEND_API_KEY=
+      - FRONTEND_URL=http://localhost:4200
+      - EMAIL_FROM=noreply@emergenciavehicular.com
+      - EMAIL_FROM_NAME=Emergencia Vehicular
+      - FIREBASE_SERVICE_ACCOUNT_BASE64=
+      - FIREBASE_SERVICE_ACCOUNT_JSON=
+      - FIREBASE_SERVICE_ACCOUNT_PATH=firebase-service-account.json
+      - STRIPE_SECRET_KEY=sk_test_51MockTestKeyForDemoAppNoRealMoney123456789
+    depends_on:
+      - db
+    volumes:
+      - ./uploads:/app/uploads
+
+volumes:
+  postgres_data:
