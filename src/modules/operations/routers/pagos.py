@@ -189,7 +189,7 @@ def confirmar_pago_directo(
             is_authorized = True
         else:
             # Check roles if any
-            membresia = next((ut for ut in current_user.usuario_tenants if ut.tenant_id == incidente.tenant_id), None)
+            membresia = next((ut for ut in current_user.tenants if ut.tenant_id == incidente.tenant_id), None)
             if membresia and membresia.rol and membresia.rol.Nombre == "Admin Tenant":
                 is_authorized = True
 

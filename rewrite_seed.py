@@ -1,4 +1,6 @@
-"""
+import os
+
+seed_code = '''"""
 Seed completo de la plataforma.
 Genera 2 tenants con todos los tipos de usuario, talleres, mecanicos,
 conductores, vehiculos y operaciones (incidentes en todos los estados,
@@ -344,7 +346,7 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
         inc = _create_incidente(db,
             coordenadagps=r_coord(), estado=estado,
             fecha=fecha_rep.strftime("%Y-%m-%d %H:%M:%S"),
-            vehiculoconductor_id=rels[cond_key].id, taller_id=taller_id, tenant_id=t1.Id)
+            vc_id=rels[cond_key].id, taller_id=taller_id, tenant_id=t1.Id)
             
         db.add(Evidencia(
             descripcion=f"Falla mecánica reportada el {fecha_rep.strftime('%d/%m')}",
@@ -399,7 +401,7 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
     inc_t2 = _create_incidente(db,
         coordenadagps=r_coord(), estado="taller asignado",
         fecha=datetime.datetime.now().strftime("%Y-%m-%d 10:00:00"),
-        vehiculoconductor_id=rels["cond14"].id, taller_id=cat["taller2a"].Id, tenant_id=t2.Id)
+        vc_id=rels["cond14"].id, taller_id=cat["taller2a"].Id, tenant_id=t2.Id)
         
     db.add(Evidencia(descripcion="El vehículo vibra mucho.", fotos="vibracion.jpg", incidente_id=inc_t2.id))
     db.add(Cotizacion(monto=200, mensaje="Balanceo de llantas", tiempo_estimado="1 hora", estado="Aceptada",
@@ -416,30 +418,30 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
 def run_seed():
     print("Iniciando seed de base de datos...")
     Base.metadata.drop_all(bind=engine)
-    print("- Tablas eliminadas")
+    print("✓ Tablas eliminadas")
     Base.metadata.create_all(bind=engine)
-    print("- Tablas creadas nuevamente")
+    print("✓ Tablas creadas nuevamente")
 
     db = SessionLocal()
     try:
         roles = seed_roles_permisos(db)
-        print("- Roles y permisos generados")
+        print("✓ Roles y permisos generados")
 
         planes = seed_planes(db)
         t1, t2 = seed_tenants(db, planes)
-        print("- Planes SaaS y Tenants generados")
+        print("✓ Planes SaaS y Tenants generados")
 
         u = seed_usuarios(db, roles, t1, t2)
-        print("- Usuarios generados (Admins, Mecánicos, Conductores)")
+        print("✓ Usuarios generados (Admins, Mecánicos, Conductores)")
 
         cat = seed_catalogos(db, u, t1, t2)
-        print("- Catálogos generados (Talleres, Servicios)")
+        print("✓ Catálogos generados (Talleres, Servicios)")
 
         rels = seed_vehiculos(db, cat)
-        print("- Vehículos generados")
+        print("✓ Vehículos generados")
 
         seed_operaciones(db, u, cat, rels, t1, t2)
-        print("- Operaciones generadas (35+ Incidentes masivos en T1, pocos en T2)")
+        print("✓ Operaciones generadas (35+ Incidentes masivos en T1, pocos en T2)")
 
         print("¡Seed completado con éxito!")
     except Exception as e:
@@ -450,3 +452,8 @@ def run_seed():
 
 if __name__ == "__main__":
     run_seed()
+'''
+
+with open(r'c:\Users\aober\OneDrive\Documents\GitHub\lin\backendp2\src\seed.py', 'w', encoding='utf-8') as f:
+    f.write(seed_code)
+print("Updated seed.py")
