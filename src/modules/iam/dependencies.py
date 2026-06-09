@@ -25,17 +25,17 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         token_type = payload.get("type")
 
         if correo is None:
-            raise credentials_exception
+            raise HTTPException(status_code=401, detail="Token no contiene correo (sub)")
         # Rechazar tokens temporales de selección de tenant
         if token_type == "tenant_selection":
-            raise credentials_exception
+            raise HTTPException(status_code=401, detail="El token es de selección de tenant, no de acceso")
 
-    except JWTError:
-        raise credentials_exception
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Error al decodificar token: {str(e)}")
     
     user = db.query(Usuario).filter(Usuario.Correo == correo).first()
     if user is None:
-        raise credentials_exception
+        raise HTTPException(status_code=401, detail="Usuario no encontrado en la base de datos")
 
     # Inyectar tenant_id y rol dinámicamente desde el JWT
     # para que current_user.tenant_id y current_user.rol sigan funcionando en todo el código
