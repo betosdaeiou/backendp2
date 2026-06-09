@@ -124,9 +124,9 @@ def seed_planes(db):
 
 def seed_tenants(db, planes):
     t1, _ = get_or_create(db, Tenant, Nombre="Red AutoFix Bolivia",
-                          defaults={"SuscripcionActiva": 1, "Dominio": "autofix.bo"})
+                          defaults={"SuscripcionActiva": 1, "Dominio": "autofix.bo", "balance": 1650})
     t2, _ = get_or_create(db, Tenant, Nombre="MecaRed Express",
-                          defaults={"SuscripcionActiva": 1, "Dominio": "mecared.com"})
+                          defaults={"SuscripcionActiva": 1, "Dominio": "mecared.com", "balance": 800})
 
     # Suscripciones
     get_or_create(db, Suscripcion, tenant_id=t1.Id, plan_id=planes["Pro"].Id,
@@ -243,9 +243,9 @@ def seed_catalogos(db, u, t1, t2):
     taller1a = db.query(Taller).filter_by(Nombre="AutoFix Central").first()
     if not taller1a:
         taller1a = Taller(
-            Nombre="AutoFix Central", Direccion="Av. Arce 2450, La Paz",
-            Coordenadas="-16.5005,-68.1193", Cap=3, Capmax=8,
-            IdUsuario=u["t1_taller1"].Id, tenant_id=t1.Id, balance=1200,
+            Nombre="AutoFix Central", Direccion="Av. Banzer 3er Anillo, Santa Cruz",
+            Coordenadas="-17.7650,-63.1750", Cap=3, Capmax=8,
+            IdUsuario=u["t1_taller1"].Id, tenant_id=t1.Id,
         )
         db.add(taller1a)
         db.commit()
@@ -255,9 +255,9 @@ def seed_catalogos(db, u, t1, t2):
     taller1b = db.query(Taller).filter_by(Nombre="AutoFix Sur").first()
     if not taller1b:
         taller1b = Taller(
-            Nombre="AutoFix Sur", Direccion="Calle 21, Calacoto",
-            Coordenadas="-16.5332,-68.0867", Cap=1, Capmax=5,
-            IdUsuario=u["t1_taller2"].Id, tenant_id=t1.Id, balance=450,
+            Nombre="AutoFix Sur", Direccion="Av. Santos Dumont 4to Anillo, Santa Cruz",
+            Coordenadas="-17.8100,-63.1800", Cap=1, Capmax=5,
+            IdUsuario=u["t1_taller2"].Id, tenant_id=t1.Id,
         )
         db.add(taller1b)
         db.commit()
@@ -268,9 +268,9 @@ def seed_catalogos(db, u, t1, t2):
     taller2a = db.query(Taller).filter_by(Nombre="MecaRed Norte").first()
     if not taller2a:
         taller2a = Taller(
-            Nombre="MecaRed Norte", Direccion="Av. Blanco Galindo km 5, Cochabamba",
-            Coordenadas="-17.3936,-66.1570", Cap=2, Capmax=6,
-            IdUsuario=u["t2_taller1"].Id, tenant_id=t2.Id, balance=800,
+            Nombre="MecaRed Norte", Direccion="Av. Cristo Redentor km 5, Santa Cruz",
+            Coordenadas="-17.7500,-63.1700", Cap=2, Capmax=6,
+            IdUsuario=u["t2_taller1"].Id, tenant_id=t2.Id,
         )
         db.add(taller2a)
         db.commit()
@@ -366,7 +366,7 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
 
     # ── Incidente 1: PENDIENTE (recién reportado, sin taller) ──
     inc1 = _create_incidente(db,
-        coordenadagps="-16.4990,-68.1210", estado="pendiente",
+        coordenadagps="-17.7680,-63.1720", estado="pendiente",
         fecha="2026-06-05 08:30:00",
         vc_id=rels["cond1"].id, taller_id=None, tenant_id=t1.Id)
 
@@ -382,7 +382,7 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
 
     # ── Incidente 2: COTIZADO (cotización enviada, esperando aceptación) ──
     inc2 = _create_incidente(db,
-        coordenadagps="-16.5100,-68.1300", estado="cotizado",
+        coordenadagps="-17.7600,-63.1800", estado="cotizado",
         fecha="2026-06-04 14:00:00",
         vc_id=rels["cond1"].id, taller_id=cat["taller1a"].Id, tenant_id=t1.Id)
 
@@ -407,7 +407,7 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
 
     # ── Incidente 3: TALLER ASIGNADO (mecánico en camino) ──
     inc3 = _create_incidente(db,
-        coordenadagps="-16.5250,-68.0900", estado="taller asignado",
+        coordenadagps="-17.8150,-63.1850", estado="taller asignado",
         fecha="2026-06-06 10:15:00", fecha_asignacion="2026-06-06 10:25:00",
         vc_id=rels["cond2"].id, taller_id=cat["taller1b"].Id, tenant_id=t1.Id)
 
@@ -435,7 +435,7 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
 
     # ── Incidente 4: EN REPARACIÓN ──
     inc4 = _create_incidente(db,
-        coordenadagps="-16.5120,-68.1050", estado="en reparacion",
+        coordenadagps="-17.7630,-63.1780", estado="en reparacion",
         fecha="2026-06-06 07:00:00", fecha_asignacion="2026-06-06 07:15:00",
         fecha_llegada="2026-06-06 07:40:00",
         vc_id=rels["cond2"].id, taller_id=cat["taller1a"].Id, tenant_id=t1.Id)
@@ -465,7 +465,7 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
 
     # ── Incidente 5: RESUELTO (pagado) ──
     inc5 = _create_incidente(db,
-        coordenadagps="-16.4950,-68.1350", estado="resuelto",
+        coordenadagps="-17.7670,-63.1710", estado="resuelto",
         fecha="2026-05-28 09:00:00", fecha_asignacion="2026-05-28 09:10:00",
         fecha_llegada="2026-05-28 09:30:00", fecha_finalizacion="2026-05-28 11:00:00",
         vc_id=rels["cond1"].id, taller_id=cat["taller1a"].Id, tenant_id=t1.Id)
@@ -501,7 +501,7 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
 
     # ── Incidente 6: RESUELTO antiguo (más datos históricos) ──
     inc6 = _create_incidente(db,
-        coordenadagps="-16.5080,-68.1280", estado="resuelto",
+        coordenadagps="-17.8080,-63.1820", estado="resuelto",
         fecha="2026-05-20 16:00:00", fecha_asignacion="2026-05-20 16:10:00",
         fecha_llegada="2026-05-20 16:35:00", fecha_finalizacion="2026-05-20 18:00:00",
         vc_id=rels["cond2"].id, taller_id=cat["taller1b"].Id, tenant_id=t1.Id)
@@ -536,7 +536,7 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
 
     # ── Incidente 7: PENDIENTE ──
     inc7 = _create_incidente(db,
-        coordenadagps="-17.3900,-66.1600", estado="pendiente",
+        coordenadagps="-17.7480,-63.1680", estado="pendiente",
         fecha="2026-06-06 11:00:00",
         vc_id=rels["cond3"].id, taller_id=None, tenant_id=t2.Id)
 
@@ -552,7 +552,7 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
 
     # ── Incidente 8: TALLER ASIGNADO ──
     inc8 = _create_incidente(db,
-        coordenadagps="-17.3950,-66.1550", estado="taller asignado",
+        coordenadagps="-17.7520,-63.1650", estado="taller asignado",
         fecha="2026-06-05 15:00:00", fecha_asignacion="2026-06-05 15:15:00",
         vc_id=rels["cond3"].id, taller_id=cat["taller2a"].Id, tenant_id=t2.Id)
 
@@ -580,7 +580,7 @@ def seed_operaciones(db, u, cat, rels, t1, t2):
 
     # ── Incidente 9: RESUELTO (pagado) ──
     inc9 = _create_incidente(db,
-        coordenadagps="-17.3880,-66.1620", estado="resuelto",
+        coordenadagps="-17.7490,-63.1720", estado="resuelto",
         fecha="2026-05-25 13:00:00", fecha_asignacion="2026-05-25 13:10:00",
         fecha_llegada="2026-05-25 13:30:00", fecha_finalizacion="2026-05-25 15:00:00",
         vc_id=rels["cond3"].id, taller_id=cat["taller2a"].Id, tenant_id=t2.Id)

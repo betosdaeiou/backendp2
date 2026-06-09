@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date
-from src.modules.catalog.schemas import MecanicoOut, TallerOut, ConductorOut
+from src.modules.catalog.schemas import MecanicoOut, TallerOut, ConductorOut, Vehiculo
 
 # ── Evidencia ─────────────────────────────────────────────────────────────────
 
@@ -99,6 +99,7 @@ class AsignarTaller(BaseModel):
 class VehiculoConductorListOut(BaseModel):
     id: int
     conductor: ConductorOut
+    vehiculo: Optional[Vehiculo] = None
     class Config:
         from_attributes = True
 
@@ -121,8 +122,8 @@ class IncidenteDetalle(IncidenteOut):
 
 Incidente = IncidenteOut
 
-class IncidentePendiente(IncidenteOut):
-    distancia_km: float
+class IncidentePendiente(IncidenteDetalle):
+    distancia_km: Optional[float] = None
 
 # ── Bitacora ──────────────────────────────────────────────────────────────────
 
@@ -164,12 +165,23 @@ class MensajeChatOut(BaseModel):
     id: int
     contenido: str
     fecha: str
-    incidente_id: int
+    incidente_id: Optional[int] = None
+    destinatario_id: Optional[int] = None
     usuario_id: int
     nombre_usuario: str
     rol_usuario: str
     class Config:
         from_attributes = True
+
+class ChatSummaryOut(BaseModel):
+    is_incidente: bool
+    incidente_id: Optional[int] = None
+    destinatario_id: Optional[int] = None
+    titulo: str
+    subtitulo: str
+    ultimo_mensaje: str
+    fecha_ultimo_mensaje: str
+    no_leidos: int = 0
 
 class ActualizarEstadoIncidente(BaseModel):
     nuevo_estado: str

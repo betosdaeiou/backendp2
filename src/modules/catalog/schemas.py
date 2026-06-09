@@ -17,6 +17,9 @@ class ConductorRegistro(BaseModel):
 
 class ConductorOut(ConductorBase):
     IdUsuario: int
+    Nombre: Optional[str] = None
+    Apellidos: Optional[str] = None
+    CI: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -40,7 +43,6 @@ class TallerCreateInternal(TallerBase):
 
 class TallerOut(TallerBase):
     Id: int
-    balance: int
     IdUsuario: Optional[int] = None
     class Config:
         from_attributes = True
@@ -117,7 +119,6 @@ class TallerProfileData(BaseModel):
     Coordenadas: Optional[str] = None
     Cap: int
     Capmax: int
-    balance: int
     class Config:
         from_attributes = True
 
@@ -146,6 +147,7 @@ class ProfileOut(BaseModel):
     conductor: Optional[ConductorProfileData] = None
     mecanico: Optional[MecanicoProfileData] = None
     tenant_nombre: Optional[str] = None
+    tenant_balance: Optional[int] = None
     class Config:
         from_attributes = True
 

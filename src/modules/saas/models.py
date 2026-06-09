@@ -14,6 +14,7 @@ class Tenant(Base):
     Dominio = Column(String(255), nullable=True)
     LogoUrl = Column(String(500), nullable=True)
     StripeCustomerId = Column(String(255), nullable=True)
+    balance = Column(Integer, default=0)
     CreatedAt = Column(DateTime, default=datetime.utcnow)
 
     usuario_tenants = relationship("UsuarioTenant", back_populates="tenant", cascade="all, delete-orphan")

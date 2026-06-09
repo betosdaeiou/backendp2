@@ -22,6 +22,7 @@ class TenantUpdate(BaseModel):
 class TenantOut(TenantBase):
     Id: int
     SuscripcionActiva: int = 1
+    balance: int = 0
     CreatedAt: Optional[datetime] = None
 
     class Config:

@@ -12,7 +12,7 @@ from src.modules.catalog.schemas import (
 )
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks, UploadFile, File
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List
 import datetime
 import os
@@ -79,19 +79,48 @@ def obtener_mis_vehiculos(
 
 mecanicos_router = APIRouter(prefix="/mecanicos", tags=["Mecanicos"])
 
-@mecanicos_router.get("/", response_model=List[MecanicoOut])
+from datetime import datetime, time
+
+@mecanicos_router.get("/")
 def get_mecanicos_by_taller(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     taller = db.query(Taller).filter(Taller.IdUsuario == current_user.Id).first()
     
+    query = db.query(Mecanico).options(joinedload(Mecanico.usuario), joinedload(Mecanico.taller))
+    
     if taller:
-        mecanicos = db.query(Mecanico).filter(Mecanico.taller_id == taller.Id).all()
-        return mecanicos
-    elif current_user.rol and current_user.rol.Nombre == 'Administrador':
+        mecanicos = query.filter(Mecanico.taller_id == taller.Id).all()
+    elif current_user.rol and current_user.rol.Nombre in ['Administrador', 'Admin Tenant']:
         if current_user.tenant_id is None:
-            return db.query(Mecanico).all()
-        return db.query(Mecanico).filter(Mecanico.tenant_id == current_user.tenant_id).all()
+            mecanicos = query.all()
+        else:
+            mecanicos = query.filter(Mecanico.tenant_id == current_user.tenant_id).all()
     else:
         raise HTTPException(status_code=403, detail="No autorizado para visualizar mecánicos")
+        
+    result = []
+    for m in mecanicos:
+        fechanac_ms = None
+        if m.usuario and m.usuario.Fechanac:
+            try:
+                # Fechanac is a date object. Convert to datetime then timestamp
+                dt = datetime.combine(m.usuario.Fechanac, time.min)
+                fechanac_ms = int(dt.timestamp() * 1000)
+            except Exception:
+                pass
+                
+        result.append({
+            "id": m.id,
+            "estado": m.estado,
+            "taller_id": m.taller_id,
+            "taller_nombre": m.taller.Nombre if m.taller else "No asignado",
+            "nombre": m.usuario.Nombre if m.usuario else "Desconocido",
+            "apellidos": m.usuario.Apellidos if m.usuario else "",
+            "ci": m.usuario.CI if m.usuario else "",
+            "extci": "",
+            "fechanac": fechanac_ms,
+            "correo": m.usuario.Correo if m.usuario else ""
+        })
+    return result
 
 @mecanicos_router.post("/", response_model=MecanicoOut, status_code=status.HTTP_201_CREATED)
 def create_mecanico(request: Request, background_tasks: BackgroundTasks, mecanico_data: MecanicoRegistro, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
@@ -234,8 +263,7 @@ def get_my_profile(
             Direccion=taller.Direccion,
             Coordenadas=taller.Coordenadas,
             Cap=taller.Cap,
-            Capmax=taller.Capmax,
-            balance=taller.balance
+            Capmax=taller.Capmax
         )
 
     conductor = db.query(Conductor).filter(Conductor.IdUsuario == current_user.Id).first()
@@ -251,10 +279,12 @@ def get_my_profile(
 
     from src.modules.saas.models import Tenant
     tenant_nombre = None
+    tenant_balance = None
     if current_user.tenant_id:
         t_obj = db.query(Tenant).filter(Tenant.Id == current_user.tenant_id).first()
         if t_obj:
             tenant_nombre = t_obj.Nombre
+            tenant_balance = t_obj.balance
 
     return ProfileOut(
         Id=current_user.Id,
@@ -269,7 +299,8 @@ def get_my_profile(
         taller=taller_data,
         conductor=conductor_data,
         mecanico=mecanico_data,
-        tenant_nombre=tenant_nombre
+        tenant_nombre=tenant_nombre,
+        tenant_balance=tenant_balance
     )
 
 @profile_router.put("/me", response_model=ProfileOut)

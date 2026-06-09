@@ -110,11 +110,13 @@ class MensajeChat(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     contenido = Column(String(1000), nullable=False)
     fecha = Column(String(50), nullable=False)
-    incidente_id = Column(Integer, ForeignKey('Incidente.id', ondelete="CASCADE"), nullable=False)
+    incidente_id = Column(Integer, ForeignKey('Incidente.id', ondelete="CASCADE"), nullable=True)
     usuario_id = Column(Integer, ForeignKey('Usuario.Id', ondelete="CASCADE"), nullable=False)
+    destinatario_id = Column(Integer, ForeignKey('Usuario.Id', ondelete="CASCADE"), nullable=True)
 
     incidente = relationship("Incidente")
-    usuario = relationship("Usuario")
+    usuario = relationship("Usuario", foreign_keys=[usuario_id])
+    destinatario = relationship("Usuario", foreign_keys=[destinatario_id])
 
 
 class AnalisisIA(Base):

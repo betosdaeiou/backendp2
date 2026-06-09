@@ -3,7 +3,7 @@ from sqlalchemy import or_
 from src.modules.iam.dependencies import get_current_user
 from src.modules.operations.models import Evidencia, Incidente, MensajeChat
 from src.modules.operations.models import AnalisisIA
-from src.modules.catalog.models import Mecanico, ServicioTaller, Taller, VehiculoConductor
+from src.modules.catalog.models import Mecanico, ServicioTaller, Taller, VehiculoConductor, Conductor
 from src.modules.operations.models import Cotizacion
 from src.modules.iam.models import Usuario
 from src.modules.catalog.schemas import ServicioTallerCreate, ServicioTallerOut, TallerDisponible
@@ -43,20 +43,23 @@ def solicitudes_pendientes(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Devuelve todos los incidentes con estado 'pendiente' para que los talleres puedan ofrecer cotización, con distancia calculada."""
-    # Validar que sea un taller
-    if not current_user.talleres:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden ver solicitudes pendientes")
+    # Validar que sea un taller o un admin tenant
+    is_taller = bool(current_user.talleres)
+    is_admin = current_user.rol and current_user.rol.Nombre == "Admin Tenant"
+    if not is_taller and not is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres o administradores pueden ver solicitudes pendientes")
 
-    # Obtener coordenadas del taller del usuario
-    taller_usuario = current_user.talleres[0]  # Primer taller del usuario
+    # Obtener coordenadas del taller del usuario (si es taller)
     taller_lat, taller_lng = None, None
-    if taller_usuario.Coordenadas:
-        try:
-            parts = taller_usuario.Coordenadas.replace(" ", "").split(",")
-            taller_lat = float(parts[0])
-            taller_lng = float(parts[1])
-        except (ValueError, IndexError):
-            pass
+    if is_taller:
+        taller_usuario = current_user.talleres[0]
+        if taller_usuario.Coordenadas:
+            try:
+                parts = taller_usuario.Coordenadas.replace(" ", "").split(",")
+                taller_lat = float(parts[0])
+                taller_lng = float(parts[1])
+            except (ValueError, IndexError):
+                pass
 
     incidentes = (
         db.query(Incidente)
@@ -64,7 +67,8 @@ def solicitudes_pendientes(
             joinedload(Incidente.evidencias), 
             joinedload(Incidente.taller), 
             joinedload(Incidente.analisis_ia),
-            joinedload(Incidente.cotizaciones)
+            joinedload(Incidente.cotizaciones),
+            joinedload(Incidente.vehiculoconductor)
         )
         .filter(
             Incidente.estado == "pendiente",
@@ -440,7 +444,6 @@ def talleres_disponibles(
             Coordenadas=t.Coordenadas,
             Cap=cap,
             Capmax=capmax,
-            balance=t.balance or 0,
             IdUsuario=t.IdUsuario,
             distancia_km=distancia,
             recomendado_ia=recomendado,
@@ -673,6 +676,52 @@ def solicitar_cotizacion(
         {"action": "nueva_solicitud_cotizacion", "incidente_id": incidente_id, "taller_id": payload.taller_id}
     )
 
+    try:
+        from src.shared.notificacion_util import crear_notificacion
+        taller = db.query(Taller).filter(Taller.Id == payload.taller_id).first()
+        if taller and taller.IdUsuario:
+            crear_notificacion(
+                db,
+                taller.IdUsuario,
+                "Solicitud de Cotización Directa",
+                f"El conductor {current_user.Nombres} te ha solicitado una cotización para el incidente #{incidente_id}."
+            )
+            
+        if current_user.tenant_id:
+            from src.modules.saas.models import Tenant
+            tenant = db.query(Tenant).filter(Tenant.Id == current_user.tenant_id).first()
+            if tenant and tenant.IdUsuario:
+                crear_notificacion(
+                    db,
+                    tenant.IdUsuario,
+                    "Solicitud de Cotización Directa",
+                    f"El conductor {current_user.Nombres} ha solicitado una cotización al taller {taller.Nombre if taller else 'desconocido'}."
+                )
+
+        # Enviar también un mensaje de chat automático al dueño del taller
+        if taller and taller.IdUsuario:
+            from src.modules.operations.models import MensajeChat
+            mensaje_auto = MensajeChat(
+                contenido=f"Hola, he solicitado una cotización para mi incidente #{incidente_id}. ¿Podrías revisarlo y enviarme una oferta?",
+                fecha=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                usuario_id=current_user.Id,
+                destinatario_id=taller.IdUsuario,
+                incidente_id=None,
+                tenant_id=current_user.tenant_id
+            )
+            db.add(mensaje_auto)
+            db.commit()
+
+            # Emitir evento WS para el chat personal
+            background_tasks.add_task(
+                broadcast_ws_event,
+                current_user.tenant_id,
+                f"user_{taller.IdUsuario}",
+                {"action": "nuevo_mensaje", "remitente_id": current_user.Id}
+            )
+    except Exception as e:
+        print(f"[Notificación] Error al notificar solicitud de cotización: {e}")
+
     return nueva_cotizacion
 
 @router.post("/{incidente_id}/ofrecer-cotizacion", response_model=CotizacionOut)
@@ -728,6 +777,55 @@ def ofrecer_cotizacion(
     )
 
     return cotizacion
+
+@router.post("/{incidente_id}/rechazar-cotizacion")
+def rechazar_cotizacion(
+    incidente_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """El taller rechaza una solicitud de cotización."""
+    if not current_user.talleres:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden rechazar cotizaciones")
+
+    taller_id = current_user.talleres[0].Id
+
+    # Buscar la cotización solicitada
+    cotizacion = db.query(Cotizacion).filter(
+        Cotizacion.incidente_id == incidente_id, 
+        Cotizacion.taller_id == taller_id,
+        Cotizacion.estado == "Solicitada"
+    ).first()
+
+    if not cotizacion:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solicitud de cotización no encontrada o ya procesada")
+
+    cotizacion.estado = "Rechazada"
+    db.commit()
+
+    # Notificar al conductor
+    try:
+        from src.shared.notificacion_util import crear_notificacion
+        conductor_user_id = cotizacion.incidente.vehiculoconductor.conductor.IdUsuario
+        crear_notificacion(
+            db,
+            conductor_user_id,
+            "Cotización Rechazada",
+            f"El taller {cotizacion.taller.Nombre} no está disponible para atender tu incidente #{incidente_id}."
+        )
+    except Exception as e_notif:
+        print(f"[Notificación] Error al notificar conductor de rechazo: {e_notif}")
+
+    if 'conductor_user_id' in locals():
+        background_tasks.add_task(
+            broadcast_ws_event,
+            current_user.tenant_id,
+            f"conductor_{conductor_user_id}",
+            {"action": "cotizacion_rechazada", "incidente_id": incidente_id}
+        )
+
+    return {"detail": "Cotización rechazada exitosamente"}
 
 @router.post("/cotizaciones/{cotizacion_id}/aceptar", response_model=IncidenteDetalle)
 def aceptar_cotizacion(
@@ -811,6 +909,8 @@ def mantenimientos_taller(
     taller_id = None
     is_mecanico = False
 
+    is_admin = current_user.rol and current_user.rol.Nombre == "Admin Tenant"
+
     if hasattr(current_user, 'talleres') and current_user.talleres:
         if isinstance(current_user.talleres, list) and len(current_user.talleres) > 0:
             taller_id = current_user.talleres[0].Id
@@ -820,30 +920,41 @@ def mantenimientos_taller(
         taller_id = current_user.mecanico.taller_id
         is_mecanico = True
 
-    if not taller_id:
-        # Fallback a buscar por `talleres` si es que la relación se llama así
-        if hasattr(current_user, 'talleres') and current_user.talleres:
-            taller_id = current_user.talleres[0].Id
-
-    if not taller_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No perteneces a ningún taller")
+    if not taller_id and not is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No perteneces a ningún taller ni eres administrador")
 
     query = db.query(Incidente).options(
         joinedload(Incidente.evidencias), 
         joinedload(Incidente.taller), 
         joinedload(Incidente.analisis_ia),
-        joinedload(Incidente.vehiculoconductor).joinedload(VehiculoConductor.conductor),
+        joinedload(Incidente.vehiculoconductor).options(
+            joinedload(VehiculoConductor.conductor).joinedload(Conductor.usuario),
+            joinedload(VehiculoConductor.vehiculo)
+        ),
         joinedload(Incidente.cotizaciones).joinedload(Cotizacion.taller),
         joinedload(Incidente.mecanicos),
         joinedload(Incidente.pagos)
-    ).filter(
-        Incidente.taller_id == taller_id,
-        Incidente.estado.in_(["taller asignado", "en camino", "finalizado", "finalizado"])
     )
+
+    if is_admin:
+        talleres_ids = [t.Id for t in db.query(Taller).filter(Taller.tenant_id == current_user.tenant_id).all()]
+        query = query.filter(
+            or_(
+                Incidente.tenant_id == current_user.tenant_id,
+                Incidente.taller_id.in_(talleres_ids) if talleres_ids else False
+            ),
+            Incidente.estado.in_(["taller asignado", "en camino", "en reparacion", "resuelto", "finalizado"])
+        )
+    else:
+        query = query.filter(
+            Incidente.taller_id == taller_id,
+            Incidente.estado.in_(["taller asignado", "en camino", "en reparacion", "resuelto", "finalizado"])
+        )
 
     # Si es mecánico, solo ver los que le fueron asignados
     if is_mecanico and hasattr(current_user, 'mecanico') and current_user.mecanico:
         query = query.filter(Incidente.mecanicos.any(Mecanico.id == current_user.mecanico.id))
+
 
     incidentes = query.order_by(Incidente.id.desc()).all()
     return incidentes
@@ -981,15 +1092,21 @@ def actualizar_estado_mantenimiento(
 
 def _get_nombre_y_rol(usuario: Usuario):
     """Devuelve (nombre_display, rol) para un usuario."""
-    rol = usuario.rol.Nombre if usuario.rol else "Usuario"
+    rol_obj = getattr(usuario, 'rol', None)
+    rol = rol_obj.Nombre if rol_obj else "Usuario"
+
     if usuario.conductor:
-        nombre = f"{usuario.conductor.Nombre} {usuario.conductor.Apellidos}"
+        nombre = f"{usuario.Nombre or ''} {usuario.Apellidos or ''}".strip() or "Conductor"
+        if not rol_obj: rol = "Conductor"
     elif usuario.mecanico:
-        nombre = f"{usuario.mecanico.nombre} {usuario.mecanico.apellidos}"
+        nombre = f"{usuario.Nombre or ''} {usuario.Apellidos or ''}".strip() or "Mecánico"
+        if not rol_obj: rol = "Mecánico"
     elif usuario.talleres:
         nombre = usuario.talleres[0].Nombre
+        if not rol_obj: rol = "Taller"
     elif usuario.administrador:
         nombre = usuario.administrador.Usuario
+        if not rol_obj: rol = "Admin Tenant"
     else:
         nombre = usuario.Correo
     return nombre, rol
@@ -1032,7 +1149,12 @@ def obtener_chat(
 
     mensajes = (
         db.query(MensajeChat)
-        .options(joinedload(MensajeChat.usuario).joinedload(Usuario.rol))
+        .options(
+            joinedload(MensajeChat.usuario).joinedload(Usuario.conductor),
+            joinedload(MensajeChat.usuario).joinedload(Usuario.mecanico),
+            joinedload(MensajeChat.usuario).joinedload(Usuario.talleres),
+            joinedload(MensajeChat.usuario).joinedload(Usuario.administrador)
+        )
         .filter(MensajeChat.incidente_id == incidente_id)
         .order_by(MensajeChat.id.asc())
         .all()

@@ -31,6 +31,7 @@ from src.modules.iam.routers import auth_router, users_router, roles_router
 from src.modules.saas.routers import router as saas_router
 from src.modules.catalog.routers import mecanicos_router, vehiculos_router, profile_router, talleres_router
 from src.modules.operations.routers.incidentes import router as incidentes_router
+from src.modules.operations.routers.chat import router as chat_router
 from src.modules.operations.routers.bitacora import router as bitacora_router
 from src.modules.operations.routers.notificaciones import router as notificaciones_router
 from src.modules.operations.routers.pagos import router as pagos_router
@@ -57,6 +58,7 @@ app.include_router(talleres_router)
 
 # Operations
 app.include_router(incidentes_router)
+app.include_router(chat_router)
 app.include_router(bitacora_router)
 app.include_router(notificaciones_router)
 app.include_router(pagos_router)

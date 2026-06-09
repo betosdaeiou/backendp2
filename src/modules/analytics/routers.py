@@ -18,45 +18,56 @@ router = APIRouter(
     tags=["Reportes y Estadísticas"]
 )
 
+from typing import Optional
+
 @router.get("/taller/stats")
 def get_taller_stats(
+    taller_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """
-    Obtiene estadísticas generales para el taller del usuario logueado.
-    """
-    if not current_user.talleres:
-        raise HTTPException(status_code=403, detail="Solo talleres pueden ver sus reportes")
-    
-    taller = current_user.talleres[0]
+    talleres_ids = []
+    if current_user.talleres:
+        talleres_ids = [current_user.talleres[0].Id]
+    elif current_user.rol and current_user.rol.Nombre == "Admin Tenant":
+        if taller_id:
+            t = db.query(Taller).filter(Taller.Id == taller_id, Taller.tenant_id == current_user.tenant_id).first()
+            if t:
+                talleres_ids = [t.Id]
+        else:
+            talleres_ids = [t.Id for t in db.query(Taller).filter(Taller.tenant_id == current_user.tenant_id).all()]
+    else:
+        raise HTTPException(status_code=403, detail="Solo talleres o administradores pueden ver reportes")
     
     # 1. Conteo de incidentes por estado
-    stats_estado = db.query(
-        Incidente.estado, 
-        func.count(Incidente.id)
-    ).filter(Incidente.taller_id == taller.Id).group_by(Incidente.estado).all()
+    stats_estado = []
+    if talleres_ids:
+        stats_estado = db.query(
+            Incidente.estado, 
+            func.count(Incidente.id)
+        ).filter(Incidente.taller_id.in_(talleres_ids)).group_by(Incidente.estado).all()
     
     estado_dict = {estado: count for estado, count in stats_estado}
     
     # 2. Ingresos totales (Pagos completados)
-    total_ingresos = db.query(func.sum(Pago.monto_total)).join(Incidente).filter(
-        Incidente.taller_id == taller.Id,
-        Pago.estado == "Completado"
-    ).scalar() or 0
+    total_ingresos = 0
+    if talleres_ids:
+        total_ingresos = db.query(func.sum(Pago.monto_total)).join(Incidente).filter(
+            Incidente.taller_id.in_(talleres_ids),
+            Pago.estado == "Completado"
+        ).scalar() or 0
     
     # 3. Incidentes en los últimos 7 días (para gráfico lineal)
     hoy = datetime.now()
     hace_7_dias = hoy - timedelta(days=7)
     
-    # Nota: La fecha en Incidente es String "%Y-%m-%d %H:%M:%S"
-    # Esto complica un poco la query pura SQL si no usamos cast, pero podemos filtrar en memoria o con Like
-    incidentes_recientes = db.query(Incidente).filter(
-        Incidente.taller_id == taller.Id,
-        Incidente.fecha >= hace_7_dias.strftime("%Y-%m-%d")
-    ).all()
+    incidentes_recientes = []
+    if talleres_ids:
+        incidentes_recientes = db.query(Incidente).filter(
+            Incidente.taller_id.in_(talleres_ids),
+            Incidente.fecha >= hace_7_dias.strftime("%Y-%m-%d")
+        ).all()
     
-    # Agrupar por día
     series_incidentes = {}
     for i in range(7):
         dia = (hoy - timedelta(days=i)).strftime("%Y-%m-%d")
@@ -67,16 +78,22 @@ def get_taller_stats(
         if dia_inc in series_incidentes:
             series_incidentes[dia_inc] += 1
             
-    # Formatear para el frontend (lista ordenada de objetos)
     chart_data = [{"fecha": k, "cantidad": v} for k, v in sorted(series_incidentes.items())]
+
+    balance_tenant = 0
+    if current_user.tenant_id:
+        from src.modules.saas.models import Tenant
+        tenant = db.query(Tenant).filter(Tenant.Id == current_user.tenant_id).first()
+        if tenant:
+            balance_tenant = tenant.balance
 
     return {
         "resumen": {
             "total_incidentes": sum(estado_dict.values()),
-            "resueltos": estado_dict.get("finalizado", 0) + estado_dict.get("finalizado", 0),
+            "resueltos": estado_dict.get("finalizado", 0),
             "pendientes": estado_dict.get("taller asignado", 0) + estado_dict.get("en camino", 0),
             "ingresos_totales": total_ingresos,
-            "balance_plataforma": taller.balance
+            "balance_plataforma": balance_tenant
         },
         "por_estado": estado_dict,
         "historico_7_dias": chart_data
@@ -85,19 +102,29 @@ def get_taller_stats(
 @router.get("/taller/export/{format}")
 def export_taller_data(
     format: str,
+    taller_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """
-    Exporta la lista de incidentes del taller en formato CSV, XML o PDF.
-    """
-    if not current_user.talleres:
-        raise HTTPException(status_code=403, detail="Solo talleres pueden exportar sus datos")
+    talleres_ids = []
+    identificador = "tenant"
+    if current_user.talleres:
+        talleres_ids = [current_user.talleres[0].Id]
+        identificador = str(current_user.talleres[0].Id)
+    elif current_user.rol and current_user.rol.Nombre == "Admin Tenant":
+        if taller_id:
+            t = db.query(Taller).filter(Taller.Id == taller_id, Taller.tenant_id == current_user.tenant_id).first()
+            if t:
+                talleres_ids = [t.Id]
+                identificador = str(t.Id)
+        else:
+            talleres_ids = [t.Id for t in db.query(Taller).filter(Taller.tenant_id == current_user.tenant_id).all()]
+    else:
+        raise HTTPException(status_code=403, detail="Solo talleres o administradores pueden exportar datos")
     
-    taller = current_user.talleres[0]
-    
-    # Obtener todos los incidentes con detalles de pago
-    incidentes = db.query(Incidente).filter(Incidente.taller_id == taller.Id).all()
+    incidentes = []
+    if talleres_ids:
+        incidentes = db.query(Incidente).filter(Incidente.taller_id.in_(talleres_ids)).all()
     
     import pandas as pd
     import io
@@ -105,7 +132,6 @@ def export_taller_data(
 
     data = []
     for inc in incidentes:
-        # Buscar pago asociado si existe
         pago = db.query(Pago).filter(Pago.incidente_id == inc.id, Pago.estado == "Completado").first()
         data.append({
             "ID": inc.id,
@@ -122,28 +148,27 @@ def export_taller_data(
         stream = io.StringIO()
         df.to_csv(stream, index=False)
         response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
-        response.headers["Content-Disposition"] = f"attachment; filename=reporte_taller_{taller.Id}.csv"
+        response.headers["Content-Disposition"] = f"attachment; filename=reporte_{identificador}.csv"
         return response
         
     elif format == "xml":
         xml_data = df.to_xml(index=False)
         return Response(content=xml_data, media_type="application/xml", headers={
-            "Content-Disposition": f"attachment; filename=reporte_taller_{taller.Id}.xml"
+            "Content-Disposition": f"attachment; filename=reporte_{identificador}.xml"
         })
         
     elif format == "pdf":
-        # Para PDF, usaremos una representación simple de texto para evitar dependencias pesadas
-        # o instalaremos fpdf si el usuario lo permite. Por ahora, generamos un reporte detallado en texto.
         try:
             from fpdf import FPDF
         except ImportError:
-            # Si no está instalado, devolvemos un error informativo o usamos una alternativa
             raise HTTPException(status_code=501, detail="Exportación a PDF requiere la librería 'fpdf2'. Instálala con 'pip install fpdf2'.")
+
+        titulo = f"Reporte de Taller: {current_user.talleres[0].Nombre}" if current_user.talleres else f"Reporte del Tenant"
 
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", 'B', 16)
-        pdf.cell(40, 10, f"Reporte de Taller: {taller.Nombre}")
+        pdf.cell(40, 10, titulo)
         pdf.ln(10)
         pdf.set_font("Arial", '', 10)
         pdf.cell(40, 10, f"Fecha de Generación: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -215,18 +240,25 @@ def obtener_kpis(
     if not current_user.tenant_id:
         raise HTTPException(status_code=400, detail="El usuario no pertenece a un tenant")
 
-    talleres_ids = [t.Id for t in db.query(Taller).filter(Taller.tenant_id == current_user.tenant_id).all()]
-
-    # Obtener todos los incidentes del tenant actual o atendidos por sus talleres
-    incidentes = db.query(Incidente).options(
-        joinedload(Incidente.analisis_ia),
-        joinedload(Incidente.cotizaciones)
-    ).filter(
-        or_(
-            Incidente.tenant_id == current_user.tenant_id,
-            Incidente.taller_id.in_(talleres_ids) if talleres_ids else False
-        )
-    ).all()
+    if current_user.talleres:
+        taller_id = current_user.talleres[0].Id
+        incidentes = db.query(Incidente).options(
+            joinedload(Incidente.analisis_ia),
+            joinedload(Incidente.cotizaciones)
+        ).filter(
+            Incidente.taller_id == taller_id
+        ).all()
+    else:
+        talleres_ids = [t.Id for t in db.query(Taller).filter(Taller.tenant_id == current_user.tenant_id).all()]
+        incidentes = db.query(Incidente).options(
+            joinedload(Incidente.analisis_ia),
+            joinedload(Incidente.cotizaciones)
+        ).filter(
+            or_(
+                Incidente.tenant_id == current_user.tenant_id,
+                Incidente.taller_id.in_(talleres_ids) if talleres_ids else False
+            )
+        ).all()
 
     total_incidentes = len(incidentes)
     if total_incidentes == 0:
@@ -301,6 +333,12 @@ def obtener_kpis(
 
     top_zonas = dict(sorted(zonas_counter.items(), key=lambda item: item[1], reverse=True)[:5])
 
+    balance_tenant = 0
+    from src.modules.saas.models import Tenant
+    tenant = db.query(Tenant).filter(Tenant.Id == current_user.tenant_id).first()
+    if tenant:
+        balance_tenant = tenant.balance
+
     return {
         "tiempo_promedio_asignacion_horas": round(avg_asignacion, 2),
         "tiempo_promedio_llegada_horas": round(avg_llegada, 2),
@@ -308,5 +346,6 @@ def obtener_kpis(
         "zonas_con_mas_incidentes": top_zonas,
         "tasa_cancelados_porcentaje": round(porcentaje_cancelados, 2),
         "cumplimiento_sla_porcentaje": round(porcentaje_sla, 2),
-        "total_incidentes": total_incidentes
+        "total_incidentes": total_incidentes,
+        "balance_plataforma": balance_tenant
     }

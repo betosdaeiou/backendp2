@@ -13,7 +13,6 @@ class Taller(Base):
     Capmax = Column(Integer, default=10)
     IdUsuario = Column(Integer, ForeignKey('Usuario.Id'), nullable=True)
     tenant_id = Column(Integer, ForeignKey('Tenant.Id', ondelete="CASCADE"), nullable=True)
-    balance = Column(Integer, default=0)
 
     usuario = relationship("Usuario", back_populates="talleres")
     mecanicos = relationship("Mecanico", back_populates="taller")
@@ -47,6 +46,18 @@ class Conductor(Base):
     usuario = relationship("Usuario", back_populates="conductor")
     vehiculos = relationship("Vehiculo", secondary="VehiculoConductor", back_populates="conductores")
     vehiculo_conductores = relationship("VehiculoConductor", back_populates="conductor")
+
+    @property
+    def Nombre(self):
+        return self.usuario.Nombre if self.usuario else None
+
+    @property
+    def Apellidos(self):
+        return self.usuario.Apellidos if self.usuario else None
+
+    @property
+    def CI(self):
+        return self.usuario.CI if self.usuario else None
 
 
 class Vehiculo(Base):

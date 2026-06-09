@@ -176,17 +176,37 @@ def confirmar_pago_directo(
     current_user: Usuario = Depends(get_current_user)
 ):
     """El taller confirma que recibió el pago en efectivo/transferencia del conductor."""
-    # Verificar que el usuario sea el taller asignado al incidente
+    # Verificar que el usuario sea Admin Tenant, o el Taller asignado, o el Mecánico asignado
     incidente = db.query(Incidente).filter(Incidente.id == incidente_id).first()
     if not incidente:
         raise HTTPException(status_code=404, detail="Incidente no encontrado.")
 
-    taller = db.query(Taller).filter(
-        Taller.Id == incidente.taller_id,
-        Taller.IdUsuario == current_user.Id
-    ).first()
-    if not taller:
-        raise HTTPException(status_code=403, detail="Solo el taller asignado puede confirmar el pago.")
+    is_authorized = False
+
+    # 1. Admin Tenant
+    if current_user.tenant_id == incidente.tenant_id:
+        if current_user.administrador:
+            is_authorized = True
+        else:
+            # Check roles if any
+            membresia = next((ut for ut in current_user.usuario_tenants if ut.tenant_id == incidente.tenant_id), None)
+            if membresia and membresia.rol and membresia.rol.Nombre == "Admin Tenant":
+                is_authorized = True
+
+    # 2. Taller
+    if not is_authorized and current_user.talleres:
+        taller_asignado = next((t for t in current_user.talleres if t.Id == incidente.taller_id), None)
+        if taller_asignado:
+            is_authorized = True
+
+    # 3. Mecanico
+    if not is_authorized and current_user.mecanico:
+        es_mecanico_asignado = any(m.id == current_user.Id for m in incidente.mecanicos)
+        if es_mecanico_asignado:
+            is_authorized = True
+
+    if not is_authorized:
+        raise HTTPException(status_code=403, detail="No tienes permiso para confirmar este pago.")
 
     # Buscar pago pendiente de confirmación
     pago = db.query(Pago).filter(
@@ -201,9 +221,12 @@ def confirmar_pago_directo(
     # Confirmar el pago
     pago.estado = "Completado"
 
-    # Aplicar comisión: Pago Directo -> Taller cobra 100%, debe 10% a plataforma
+    # Aplicar comisión: Pago Directo -> Taller cobra 100%, debe 10% a plataforma (descontado al tenant)
     comision = int(pago.monto_total * 0.10)
-    taller.balance = (taller.balance or 0) - comision
+    from src.modules.saas.models import Tenant
+    tenant = db.query(Tenant).filter(Tenant.Id == incidente.tenant_id).first()
+    if tenant:
+        tenant.balance = (tenant.balance or 0) - comision
 
     # Marcar incidente como Pagado
     incidente.estado = "finalizado"
@@ -253,15 +276,16 @@ def confirmar_pago_stripe(
             pago.estado = "Completado"
             
             # Lógica de Comisión
-            # Pago Stripe -> Plataforma cobra 100%, se queda 10%, debe 90% a taller -> balance positivo para taller
+            # Pago Stripe -> Plataforma cobra 100%, se queda 10%, debe 90% a tenant -> balance positivo para tenant
             monto_taller = int(pago.monto_total * 0.90)
             
             incidente = db.query(Incidente).filter(Incidente.id == pago.incidente_id).first()
             if incidente:
                 incidente.estado = "finalizado"
-                taller = db.query(Taller).filter(Taller.Id == incidente.taller_id).first()
-                if taller:
-                    taller.balance = (taller.balance or 0) + monto_taller
+                from src.modules.saas.models import Tenant
+                tenant = db.query(Tenant).filter(Tenant.Id == incidente.tenant_id).first()
+                if tenant:
+                    tenant.balance = (tenant.balance or 0) + monto_taller
 
             db.commit()
             db.refresh(pago)
@@ -307,10 +331,11 @@ def stripe_success_page(
                 incidente = db.query(Incidente).filter(Incidente.id == pago.incidente_id).first()
                 if incidente:
                     incidente.estado = "finalizado"
-                    taller = db.query(Taller).filter(Taller.Id == incidente.taller_id).first()
-                    if taller:
+                    from src.modules.saas.models import Tenant
+                    tenant = db.query(Tenant).filter(Tenant.Id == incidente.tenant_id).first()
+                    if tenant:
                         monto_taller = int(pago.monto_total * 0.90)
-                        taller.balance = (taller.balance or 0) + monto_taller
+                        tenant.balance = (tenant.balance or 0) + monto_taller
                 db.commit()
                 status_msg = "¡Pago Completado Exitosamente!"
             else:
