@@ -37,29 +37,39 @@ router = APIRouter(
 )
 
 
+def get_taller_para_usuario(current_user: Usuario, db: Session):
+    """Obtiene el taller asociado al usuario (Admin de Taller) o el primer taller del tenant (Admin Tenant)."""
+    if hasattr(current_user, 'talleres') and current_user.talleres:
+        if isinstance(current_user.talleres, list) and len(current_user.talleres) > 0:
+            return current_user.talleres[0]
+        elif not isinstance(current_user.talleres, list):
+            return current_user.talleres
+            
+    is_admin = current_user.rol and current_user.rol.Nombre == "Admin Tenant"
+    if is_admin and current_user.tenant_id:
+        return db.query(Taller).filter(Taller.tenant_id == current_user.tenant_id).first()
+        
+    return None
+
 @router.get("/solicitudes-pendientes", response_model=List[IncidentePendiente])
 def solicitudes_pendientes(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """Devuelve todos los incidentes con estado 'pendiente' para que los talleres puedan ofrecer cotización, con distancia calculada."""
-    # Validar que sea un taller o un admin tenant
-    is_taller = bool(current_user.talleres)
-    is_admin = current_user.rol and current_user.rol.Nombre == "Admin Tenant"
-    if not is_taller and not is_admin:
+    taller_usuario = get_taller_para_usuario(current_user, db)
+    if not taller_usuario:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres o administradores pueden ver solicitudes pendientes")
 
-    # Obtener coordenadas del taller del usuario (si es taller)
+    # Obtener coordenadas del taller del usuario
     taller_lat, taller_lng = None, None
-    if is_taller:
-        taller_usuario = current_user.talleres[0]
-        if taller_usuario.Coordenadas:
-            try:
-                parts = taller_usuario.Coordenadas.replace(" ", "").split(",")
-                taller_lat = float(parts[0])
-                taller_lng = float(parts[1])
-            except (ValueError, IndexError):
-                pass
+    if taller_usuario and taller_usuario.Coordenadas:
+        try:
+            parts = taller_usuario.Coordenadas.replace(" ", "").split(",")
+            taller_lat = float(parts[0])
+            taller_lng = float(parts[1])
+        except (ValueError, IndexError):
+            pass
 
     incidentes = (
         db.query(Incidente)
@@ -277,7 +287,6 @@ def reintentar_analisis(
     if not current_user.conductor:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo conductores pueden reintentar el análisis")
 
-    vc_ids = [vc.id for vc in current_user.conductor.vehiculo_conductores]
     incidente = (
         db.query(Incidente)
         .options(
@@ -286,7 +295,11 @@ def reintentar_analisis(
             joinedload(Incidente.analisis_ia),
             joinedload(Incidente.cotizaciones).joinedload(Cotizacion.taller)
         )
-        .filter(Incidente.id == incidente_id, Incidente.vehiculoconductor_id.in_(vc_ids))
+        .join(VehiculoConductor, Incidente.vehiculoconductor_id == VehiculoConductor.id)
+        .filter(
+            Incidente.id == incidente_id,
+            VehiculoConductor.conductor_id == current_user.conductor.IdUsuario
+        )
         .first()
     )
 
@@ -481,9 +494,9 @@ def mis_servicios(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Devuelve los servicios configurados por el taller autenticado."""
-    if not current_user.talleres:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden ver sus servicios")
-    taller = current_user.talleres[0]
+    taller = get_taller_para_usuario(current_user, db)
+    if not taller:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres o administradores pueden ver sus servicios")
     servicios = db.query(ServicioTaller).filter(ServicioTaller.taller_id == taller.Id).all()
     return servicios
 
@@ -495,9 +508,9 @@ def agregar_servicio(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Permite al taller agregar un servicio a su perfil."""
-    if not current_user.talleres:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden gestionar servicios")
-    taller = current_user.talleres[0]
+    taller = get_taller_para_usuario(current_user, db)
+    if not taller:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres o administradores pueden gestionar servicios")
     nombre = payload.nombre.strip()
     if not nombre:
         raise HTTPException(status_code=400, detail="El nombre del servicio no puede estar vacío")
@@ -522,9 +535,9 @@ def eliminar_servicio(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Permite al taller eliminar uno de sus servicios."""
-    if not current_user.talleres:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden gestionar servicios")
-    taller = current_user.talleres[0]
+    taller = get_taller_para_usuario(current_user, db)
+    if not taller:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres o administradores pueden gestionar servicios")
     svc = db.query(ServicioTaller).filter(
         ServicioTaller.id == servicio_id,
         ServicioTaller.taller_id == taller.Id
@@ -648,8 +661,13 @@ def solicitar_cotizacion(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo conductores pueden solicitar cotizaciones")
 
     # Verificar incidente
-    vc_ids = [vc.id for vc in current_user.conductor.vehiculo_conductores]
-    incidente = db.query(Incidente).filter(Incidente.id == incidente_id, Incidente.vehiculoconductor_id.in_(vc_ids)).first()
+    # Verificar incidente usando JOIN explícito con VehiculoConductor
+    incidente = db.query(Incidente)\
+        .join(VehiculoConductor, Incidente.vehiculoconductor_id == VehiculoConductor.id)\
+        .filter(
+            Incidente.id == incidente_id,
+            VehiculoConductor.conductor_id == current_user.conductor.IdUsuario
+        ).first()
     if not incidente:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incidente no encontrado")
 
@@ -733,10 +751,10 @@ def ofrecer_cotizacion(
     current_user: Usuario = Depends(get_current_user)
 ):
     """El taller ofrece un monto por un incidente."""
-    if not current_user.talleres:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden ofrecer cotizaciones")
-
-    taller_id = current_user.talleres[0].Id
+    taller = get_taller_para_usuario(current_user, db)
+    if not taller:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo un taller o administrador puede ofrecer cotizaciones")
+    taller_id = taller.Id
 
     # Buscar si ya había una solicitud o cotización previa
     cotizacion = db.query(Cotizacion).filter(Cotizacion.incidente_id == incidente_id, Cotizacion.taller_id == taller_id).first()
@@ -786,10 +804,10 @@ def rechazar_cotizacion(
     current_user: Usuario = Depends(get_current_user)
 ):
     """El taller rechaza una solicitud de cotización."""
-    if not current_user.talleres:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden rechazar cotizaciones")
-
-    taller_id = current_user.talleres[0].Id
+    taller = get_taller_para_usuario(current_user, db)
+    if not taller:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo un taller o administrador puede rechazar incidentes")
+    taller_id = taller.Id
 
     # Buscar la cotización solicitada
     cotizacion = db.query(Cotizacion).filter(
@@ -843,8 +861,12 @@ def aceptar_cotizacion(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cotización no encontrada")
 
     # Verificar que el incidente pertenece al conductor
-    vc_ids = [vc.id for vc in current_user.conductor.vehiculo_conductores]
-    incidente = db.query(Incidente).filter(Incidente.id == cotizacion.incidente_id, Incidente.vehiculoconductor_id.in_(vc_ids)).first()
+    incidente = db.query(Incidente)\
+        .join(VehiculoConductor, Incidente.vehiculoconductor_id == VehiculoConductor.id)\
+        .filter(
+            Incidente.id == cotizacion.incidente_id,
+            VehiculoConductor.conductor_id == current_user.conductor.IdUsuario
+        ).first()
     if not incidente:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El incidente asociado no te pertenece")
 
@@ -906,17 +928,12 @@ def mantenimientos_taller(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Devuelve los incidentes asignados al taller del usuario (sea Taller o Mecanico)."""
-    taller_id = None
+    taller = get_taller_para_usuario(current_user, db)
+    taller_id = taller.Id if taller else None
     is_mecanico = False
-
     is_admin = current_user.rol and current_user.rol.Nombre == "Admin Tenant"
 
-    if hasattr(current_user, 'talleres') and current_user.talleres:
-        if isinstance(current_user.talleres, list) and len(current_user.talleres) > 0:
-            taller_id = current_user.talleres[0].Id
-        elif not isinstance(current_user.talleres, list):
-            taller_id = current_user.talleres.Id
-    elif hasattr(current_user, 'mecanico') and current_user.mecanico:
+    if not taller_id and not is_admin and hasattr(current_user, 'mecanico') and current_user.mecanico:
         taller_id = current_user.mecanico.taller_id
         is_mecanico = True
 
@@ -967,15 +984,10 @@ def asignar_mecanicos_incidente(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Asigna múltiples mecánicos a un incidente. Exclusivo para Taller."""
-    taller_id = None
-    if hasattr(current_user, 'talleres') and current_user.talleres:
-        if isinstance(current_user.talleres, list) and len(current_user.talleres) > 0:
-            taller_id = current_user.talleres[0].Id
-        elif not isinstance(current_user.talleres, list):
-            taller_id = current_user.talleres.Id
-            
-    if not taller_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden asignar mecánicos")
+    taller = get_taller_para_usuario(current_user, db)
+    if not taller:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo un taller o administrador puede agregar mecánicos")
+    taller_id = taller.Id
 
     incidente = db.query(Incidente).filter(
         Incidente.id == incidente_id,
@@ -1025,18 +1037,11 @@ def actualizar_estado_mantenimiento(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza el estado de un incidente (En Camino, Resuelto). Taller y Mecanico."""
-    taller_id = None
-    if hasattr(current_user, 'talleres') and current_user.talleres:
-        if isinstance(current_user.talleres, list) and len(current_user.talleres) > 0:
-            taller_id = current_user.talleres[0].Id
-        elif not isinstance(current_user.talleres, list):
-            taller_id = current_user.talleres.Id
-    elif hasattr(current_user, 'mecanico') and current_user.mecanico:
+    taller = get_taller_para_usuario(current_user, db)
+    taller_id = taller.Id if taller else None
+    
+    if not taller_id and hasattr(current_user, 'mecanico') and current_user.mecanico:
         taller_id = current_user.mecanico.taller_id
-
-    if not taller_id:
-        if hasattr(current_user, 'talleres') and current_user.talleres:
-            taller_id = current_user.talleres[0].Id
 
     if not taller_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No perteneces a ningún taller")
@@ -1116,8 +1121,7 @@ def _usuario_puede_chatear(incidente: Incidente, user: Usuario) -> bool:
     """Verifica si el usuario es participante del incidente (conductor, taller o mecánico asignado)."""
     # Es conductor dueño del incidente
     if user.conductor:
-        vc_ids = [vc.id for vc in user.conductor.vehiculo_conductores]
-        if incidente.vehiculoconductor_id in vc_ids:
+        if db.query(VehiculoConductor).filter(VehiculoConductor.id == incidente.vehiculoconductor_id, VehiculoConductor.conductor_id == user.conductor.IdUsuario).first():
             return True
     # Permitir a cualquier taller participar en el chat (ej. para negociar cotizaciones)
     if user.talleres:

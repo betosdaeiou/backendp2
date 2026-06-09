@@ -79,7 +79,10 @@ class PagoOut(PagoBase):
 
 class IncidenteBase(BaseModel):
     coordenadagps: str
-    vehiculoconductor_id: int
+    vehiculoconductor_id: Optional[int] = None
+    vehiculo_id: Optional[int] = None
+    estado: Optional[str] = None
+    fecha: Optional[str] = None
 
 class IncidenteCreate(IncidenteBase):
     descripcion: Optional[str] = None

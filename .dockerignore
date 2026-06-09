@@ -7,3 +7,8 @@ venv
 .gitignore
 uploads
 *.md
+*.db
+*.sqlite3
+*.code-workspace
+dev.db
+database.db

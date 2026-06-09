@@ -1,19 +1,8 @@
 import psycopg2
+conn = psycopg2.connect('postgresql://postgres:password@localhost:5432/emergencias')
+cur = conn.cursor()
+cur.execute('SELECT "Id", "Correo", "tenant_id", "rol_id" FROM public."Usuario" WHERE "Correo" = \'admin.autofix@demo.com\'')
+print("Admin Tenant Usuario:", cur.fetchall())
 
-try:
-    conn = psycopg2.connect('postgresql://postgres:password@localhost:5432/emergencias')
-    cur = conn.cursor()
-    
-    print("--- Incidentes ---")
-    cur.execute('SELECT id, estado, fecha FROM "Incidente" LIMIT 10;')
-    for row in cur.fetchall():
-        print(row)
-        
-    print("\n--- Bitacora ---")
-    cur.execute('SELECT id, accion, descripcion, fecha FROM "Bitacora" LIMIT 10;')
-    for row in cur.fetchall():
-        print(row)
-        
-    conn.close()
-except Exception as e:
-    print(e)
+cur.execute('SELECT "Id", "Nombre" FROM public."Rol"')
+print("Roles:", cur.fetchall())

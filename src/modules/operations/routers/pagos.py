@@ -44,7 +44,7 @@ def create_stripe_checkout(
     if not incidente:
         raise HTTPException(status_code=404, detail="Incidente no encontrado.")
     
-    if incidente.estado != "finalizado":
+    if incidente.estado not in ["finalizado", "resuelto"]:
         raise HTTPException(status_code=400, detail="El incidente aún no está resuelto.")
 
     # Obtener monto de la cotización aceptada
@@ -118,7 +118,7 @@ def pago_directo(
     if not incidente:
         raise HTTPException(status_code=404, detail="Incidente no encontrado.")
     
-    if incidente.estado != "finalizado":
+    if incidente.estado not in ["finalizado", "resuelto"]:
         raise HTTPException(status_code=400, detail="El incidente aún no está resuelto.")
 
     cotizacion = db.query(Cotizacion).filter(
@@ -229,7 +229,7 @@ def confirmar_pago_directo(
         tenant.balance = (tenant.balance or 0) - comision
 
     # Marcar incidente como Pagado
-    incidente.estado = "finalizado"
+    incidente.estado = "pagado"
 
     db.commit()
     db.refresh(pago)
@@ -281,7 +281,7 @@ def confirmar_pago_stripe(
             
             incidente = db.query(Incidente).filter(Incidente.id == pago.incidente_id).first()
             if incidente:
-                incidente.estado = "finalizado"
+                incidente.estado = "pagado"
                 from src.modules.saas.models import Tenant
                 tenant = db.query(Tenant).filter(Tenant.Id == incidente.tenant_id).first()
                 if tenant:
@@ -330,7 +330,7 @@ def stripe_success_page(
                 pago.estado = "Completado"
                 incidente = db.query(Incidente).filter(Incidente.id == pago.incidente_id).first()
                 if incidente:
-                    incidente.estado = "finalizado"
+                    incidente.estado = "pagado"
                     from src.modules.saas.models import Tenant
                     tenant = db.query(Tenant).filter(Tenant.Id == incidente.tenant_id).first()
                     if tenant:

@@ -256,6 +256,10 @@ def get_my_profile(
         admin_data = AdminProfileData(Usuario=current_user.administrador.Usuario)
 
     taller = db.query(Taller).filter(Taller.IdUsuario == current_user.Id, Taller.tenant_id == current_user.tenant_id).first()
+    
+    if not taller and current_user.rol and current_user.rol.Nombre == "Admin Tenant" and current_user.tenant_id:
+        taller = db.query(Taller).filter(Taller.tenant_id == current_user.tenant_id).first()
+
     if taller:
         taller_data = TallerProfileData(
             Id=taller.Id,
