@@ -11,8 +11,16 @@ from src.modules.catalog.models import VehiculoConductor
 from src.modules.operations.services.ai_service import analizar_incidente
 from src.shared.notificacion_util import crear_notificacion
 from src.modules.catalog.models import Taller
+from src.broker.manager import manager
 
 router = APIRouter(prefix="/offline-sync", tags=["Offline Synchronization"])
+
+async def broadcast_ws_event(tenant_id: int | None, room_id: str, payload: dict):
+    if tenant_id is None:
+        await manager.broadcast_all_tenants(payload, room_id)
+    else:
+        await manager.broadcast(payload, tenant_id, room_id)
+
 
 # ─── MODELOS PARA SYNC BÁSICO (legacy) ────────────────────────────────────────
 
@@ -53,6 +61,7 @@ class SyncCompletoResponse(BaseModel):
 @router.post("/incidentes", response_model=List[SyncResponse])
 def sincronizar_incidentes(
     payload: SyncPayload,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -74,6 +83,21 @@ def sincronizar_incidentes(
 
     for item in payload.incidentes:
         try:
+            # 0. Check for duplicates
+            existente = db.query(Incidente).filter(
+                Incidente.coordenadagps == item.coordenadagps,
+                Incidente.fecha == item.fecha,
+                Incidente.vehiculoconductor_id == vc_id
+            ).first()
+
+            if existente:
+                respuestas.append(SyncResponse(
+                    local_id=item.local_id,
+                    server_id=existente.id,
+                    status="synchronized"
+                ))
+                continue
+
             # 1. Crear el incidente
             nuevo_incidente = Incidente(
                 coordenadagps=item.coordenadagps,
@@ -93,6 +117,13 @@ def sincronizar_incidentes(
             )
             db.add(nueva_evidencia)
             db.commit()
+
+            background_tasks.add_task(
+                broadcast_ws_event,
+                tenant_id,
+                "talleres",
+                {"action": "nuevo_incidente", "incidente_id": nuevo_incidente.id}
+            )
 
             respuestas.append(SyncResponse(
                 local_id=item.local_id,
@@ -116,6 +147,7 @@ def sincronizar_incidentes(
 @router.post("/incidente-completo", response_model=SyncCompletoResponse)
 def sincronizar_incidente_completo(
     payload: IncidenteCompletoSync,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -149,6 +181,20 @@ def sincronizar_incidente_completo(
         vc_id = current_user.conductor.vehiculo_conductores[0].id
 
     try:
+        # 0. Check for duplicates
+        existente = db.query(Incidente).filter(
+            Incidente.coordenadagps == payload.coordenadagps,
+            Incidente.fecha == payload.fecha,
+            Incidente.vehiculoconductor_id == vc_id
+        ).first()
+
+        if existente:
+            return SyncCompletoResponse(
+                local_id=payload.local_id,
+                server_id=existente.id,
+                status="synchronized"
+            )
+
         # 1. Crear Incidente
         nuevo_incidente = Incidente(
             coordenadagps=payload.coordenadagps,
@@ -247,6 +293,13 @@ def sincronizar_incidente_completo(
                 )
         except Exception as e_notif:
             print(f"[Offline-Sync] Error notificando talleres: {e_notif}")
+
+        background_tasks.add_task(
+            broadcast_ws_event,
+            tenant_id,
+            "talleres",
+            {"action": "nuevo_incidente", "incidente_id": nuevo_incidente.id}
+        )
 
         return SyncCompletoResponse(
             local_id=payload.local_id,
