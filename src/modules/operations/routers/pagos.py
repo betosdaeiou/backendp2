@@ -101,10 +101,13 @@ def create_stripe_checkout(
 from src.broker.manager import manager
 
 async def broadcast_ws_event(tenant_id: int | None, room_id: str, payload: dict):
-    if tenant_id is None:
-        await manager.broadcast_all_tenants(payload, room_id)
-    else:
-        await manager.broadcast(payload, tenant_id, room_id)
+    """Emite el evento a la sala indicada Y a las salas complementarias (talleres, conductores, mecanicos)."""
+    all_rooms = {"talleres", "conductores", "mecanicos", room_id}
+    for room in all_rooms:
+        if tenant_id is None:
+            await manager.broadcast_all_tenants(payload, room)
+        else:
+            await manager.broadcast(payload, tenant_id, room)
 
 @router.post("/{incidente_id}/directo", response_model=PagoOut)
 def pago_directo(

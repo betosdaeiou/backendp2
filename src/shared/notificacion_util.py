@@ -94,19 +94,23 @@ def crear_notificacion(db: Session, usuario_id: int, titulo: str, descripcion: s
     db.commit()
     db.refresh(nueva_notificacion)
 
-    # Emitir por WebSockets si se provee background_tasks
+    # Emitir por WebSockets
+    ws_payload = {
+        "action": "nueva_notificacion",
+        "titulo": titulo,
+        "descripcion": descripcion,
+        "notificacion_id": nueva_notificacion.id
+    }
     if background_tasks:
         background_tasks.add_task(
             _broadcast_ws,
             tenant_id,
             f"user_{usuario_id}",
-            {
-                "action": "nueva_notificacion",
-                "titulo": titulo,
-                "descripcion": descripcion,
-                "notificacion_id": nueva_notificacion.id
-            }
+            ws_payload
         )
+    else:
+        from src.broker.manager import manager
+        manager.run_async(_broadcast_ws(tenant_id, f"user_{usuario_id}", ws_payload))
 
     # Enviar push si el usuario tiene token FCM registrado
     if usuario and usuario.fcm_token:

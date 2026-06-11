@@ -18,10 +18,13 @@ from src.broker.manager import manager
 import asyncio
 
 async def broadcast_ws_event(tenant_id: int | None, room_id: str, payload: dict):
-    if tenant_id is None:
-        await manager.broadcast_all_tenants(payload, room_id)
-    else:
-        await manager.broadcast(payload, tenant_id, room_id)
+    """Emite el evento a la sala indicada Y a las salas complementarias (talleres, conductores, mecanicos)."""
+    all_rooms = {"talleres", "conductores", "mecanicos", room_id}
+    for room in all_rooms:
+        if tenant_id is None:
+            await manager.broadcast_all_tenants(payload, room)
+        else:
+            await manager.broadcast(payload, tenant_id, room)
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
