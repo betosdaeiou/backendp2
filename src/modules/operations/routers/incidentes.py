@@ -724,8 +724,7 @@ def solicitar_cotizacion(
                 fecha=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 usuario_id=current_user.Id,
                 destinatario_id=taller.IdUsuario,
-                incidente_id=None,
-                tenant_id=current_user.tenant_id
+                incidente_id=None
             )
             db.add(mensaje_auto)
             db.commit()
