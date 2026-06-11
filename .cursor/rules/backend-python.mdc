@@ -1,0 +1,48 @@
+---
+description: Convenciones de imports y modelos del backend FastAPI
+globs: src/**/*.py
+alwaysApply: true
+---
+
+# Backend Python — reglas para IA
+
+## Models vs Schemas
+
+- **BD / SQLAlchemy** → `src.models` o `src.modules.<modulo>.models`
+- **API / Pydantic** → `src.modules.<modulo>.schemas` (sufijos `Create`, `Out`, `Update`, `Detalle`)
+
+```python
+# ✅ BD
+from src.models import Incidente, Usuario
+db.query(Incidente).filter(Incidente.id == id)
+
+# ✅ API
+from src.modules.operations.schemas import IncidenteOut, IncidenteCreate
+@router.get("/", response_model=IncidenteOut)
+```
+
+```python
+# ❌ NUNCA
+from src.modules.operations.schemas import Incidente  # no existe; usar IncidenteOut
+from models import Usuario
+db.query(IncidenteCreate)  # es Pydantic, no tabla
+```
+
+## Campos
+
+- IAM/catalog legacy: `usuario.Id`, `usuario.Correo`, `taller.Id`
+- Operations: `incidente.id`, `incidente.tenant_id`
+
+## Imports
+
+- Siempre absolutos: `from src.modules...`
+- Nunca relativos: `from ..models import ...`
+- Ejecutar desde raíz: `uvicorn src.main:app --reload`
+
+## Modelo nuevo
+
+1. Añadir clase en `src/modules/<modulo>/models.py`
+2. Exportar en `src/models/__init__.py`
+3. Schema en `schemas.py` si hay endpoint
+
+Ver `AGENTS.md` para mapa completo de módulos.

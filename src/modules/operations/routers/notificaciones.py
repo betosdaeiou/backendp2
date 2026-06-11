@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
 
-from ..models import Notificacion
+from src.modules.operations.models import Notificacion
 from src.modules.iam.models import Usuario
-from ..schemas import NotificacionOut, NotificacionCreate
+from src.modules.operations.schemas import NotificacionOut, NotificacionCreate
 from src.modules.iam.schemas import FCMTokenUpdate
 
 router = APIRouter(
@@ -54,7 +54,7 @@ def simular_notificacion(
     notificacion: NotificacionCreate,
     usuario_id: int,
     db: Session = Depends(get_db),
-    # Administrador only ideally, but we'll leave it open for testing
+    current_user: Usuario = Depends(get_current_user),
 ):
     """
     Crea una notificación para un usuario (Simulador de eventos Backend para disparar a un móvil).

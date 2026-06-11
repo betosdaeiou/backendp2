@@ -7,7 +7,7 @@ from src.modules.catalog.models import Mecanico, ServicioTaller, Taller, Vehicul
 from src.modules.operations.models import Cotizacion
 from src.modules.iam.models import Usuario
 from src.modules.catalog.schemas import ServicioTallerCreate, ServicioTallerOut, TallerDisponible
-from src.modules.operations.schemas import AsignarMecanicos, AsignarTaller, Incidente as IncidenteSchema, IncidenteCreate, IncidenteDetalle, IncidentePendiente, MensajeChatCreate, MensajeChatOut
+from src.modules.operations.schemas import AsignarMecanicos, AsignarTaller, IncidenteOut, IncidenteCreate, IncidenteDetalle, IncidentePendiente, MensajeChatCreate, MensajeChatOut
 from src.modules.operations.schemas import CotizacionCreate, CotizacionOfrecer, CotizacionOut
 from src.modules.operations.schemas import ReintentarAnalisisPayload, ActualizarEstadoIncidente
 from src.modules.operations.services.ai_service import analizar_incidente
@@ -77,11 +77,11 @@ def solicitudes_pendientes(
             joinedload(Incidente.evidencias), 
             joinedload(Incidente.taller), 
             joinedload(Incidente.analisis_ia),
-            joinedload(Incidente.cotizaciones),
-            joinedload(Incidente.vehiculoconductor)
+            joinedload(Incidente.vehiculoconductor).joinedload(VehiculoConductor.vehiculo),
+            joinedload(Incidente.cotizaciones)
         )
         .filter(
-            Incidente.estado == "pendiente",
+            Incidente.estado.in_(["pendiente", "Reportado"]),
             or_(
                 Incidente.tenant_id == current_user.tenant_id,
                 Incidente.tenant_id == None
@@ -128,7 +128,7 @@ def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return round(R * c, 2)
 
 
-@router.post("/reportar", response_model=IncidenteSchema)
+@router.post("/reportar", response_model=IncidenteOut)
 def reportar_incidente(
     payload: IncidenteCreate,
     background_tasks: BackgroundTasks,
@@ -702,7 +702,7 @@ def solicitar_cotizacion(
                 db,
                 taller.IdUsuario,
                 "Solicitud de Cotización Directa",
-                f"El conductor {current_user.Nombres} te ha solicitado una cotización para el incidente #{incidente_id}."
+                f"El conductor {current_user.Nombre or 'Conductor'} te ha solicitado una cotización para el incidente #{incidente_id}."
             )
             
         if current_user.tenant_id:
@@ -713,7 +713,7 @@ def solicitar_cotizacion(
                     db,
                     tenant.IdUsuario,
                     "Solicitud de Cotización Directa",
-                    f"El conductor {current_user.Nombres} ha solicitado una cotización al taller {taller.Nombre if taller else 'desconocido'}."
+                    f"El conductor {current_user.Nombre or 'Conductor'} ha solicitado una cotización al taller {taller.Nombre if taller else 'desconocido'}."
                 )
 
         # Enviar también un mensaje de chat automático al dueño del taller
@@ -1117,7 +1117,7 @@ def _get_nombre_y_rol(usuario: Usuario):
     return nombre, rol
 
 
-def _usuario_puede_chatear(incidente: Incidente, user: Usuario) -> bool:
+def _usuario_puede_chatear(db: Session, incidente: Incidente, user: Usuario) -> bool:
     """Verifica si el usuario es participante del incidente (conductor, taller o mecánico asignado)."""
     # Es conductor dueño del incidente
     if user.conductor:
@@ -1148,7 +1148,7 @@ def obtener_chat(
     if not incidente:
         raise HTTPException(status_code=404, detail="Incidente no encontrado.")
 
-    if not _usuario_puede_chatear(incidente, current_user):
+    if not _usuario_puede_chatear(db, incidente, current_user):
         raise HTTPException(status_code=403, detail="No tienes acceso al chat de este incidente.")
 
     mensajes = (
@@ -1196,7 +1196,7 @@ def enviar_mensaje_chat(
     if not incidente:
         raise HTTPException(status_code=404, detail="Incidente no encontrado.")
 
-    if not _usuario_puede_chatear(incidente, current_user):
+    if not _usuario_puede_chatear(db, incidente, current_user):
         raise HTTPException(status_code=403, detail="No tienes acceso al chat de este incidente.")
 
     nombre_remitente, rol_remitente = _get_nombre_y_rol(current_user)

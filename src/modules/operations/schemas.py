@@ -86,6 +86,7 @@ class IncidenteBase(BaseModel):
 
 class IncidenteCreate(IncidenteBase):
     descripcion: Optional[str] = None
+    evidencia: Optional[EvidenciaCreate] = None
 
 class EstadoUpdate(BaseModel):
     estado: str
@@ -122,8 +123,6 @@ class IncidenteDetalle(IncidenteOut):
     mecanicos: List[MecanicoOut] = []
     analisis_ia: Optional[AnalisisIAEnIncidente] = None
     pagos: List[PagoOut] = []
-
-Incidente = IncidenteOut
 
 class IncidentePendiente(IncidenteDetalle):
     distancia_km: Optional[float] = None

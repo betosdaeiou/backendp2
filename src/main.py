@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from src.core.database import engine, Base, get_db
+import src.models  # noqa: F401 — registra todos los modelos en Base.metadata
 
 import os
 
@@ -15,6 +16,18 @@ app = FastAPI(
     description="Arquitectura Modular Multi-Tenant con FastAPI, WebSockets y Offline-Sync",
     version="2.0.0"
 )
+
+import traceback
+from fastapi.responses import JSONResponse
+from fastapi import Request
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    with open("error.log", "a") as f:
+        f.write(f"Exception on {request.url}\n")
+        f.write(traceback.format_exc())
+        f.write("\n")
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 # Habilitar CORS
 app.add_middleware(
@@ -35,9 +48,10 @@ from src.modules.operations.routers.chat import router as chat_router
 from src.modules.operations.routers.bitacora import router as bitacora_router
 from src.modules.operations.routers.notificaciones import router as notificaciones_router
 from src.modules.operations.routers.pagos import router as pagos_router
-from src.modules.operations.routers.ia import router as ia_router
 from src.modules.analytics.routers import router as analytics_router
-from src.modules.offline_sync.routers import router as offline_sync_router
+# Deshabilitados para demo estable (evitan rutas duplicadas y fallos intermitentes):
+# from src.modules.operations.routers.ia import router as ia_router
+# from src.modules.offline_sync.routers import router as offline_sync_router
 from src.modules.realtime.sockets import router as realtime_router
 
 # ─── INCLUSIÓN DE ROUTERS ─────────────────────────────────────────────────────
@@ -62,15 +76,13 @@ app.include_router(chat_router)
 app.include_router(bitacora_router)
 app.include_router(notificaciones_router)
 app.include_router(pagos_router)
-app.include_router(ia_router)
+# app.include_router(ia_router)
 
 # Analytics
 app.include_router(analytics_router)
 
-# Offline Sync
-app.include_router(offline_sync_router)
-
-# Realtime (WebSockets)
+# Offline Sync / WebSockets — deshabilitados para demo
+# app.include_router(offline_sync_router)
 app.include_router(realtime_router)
 
 

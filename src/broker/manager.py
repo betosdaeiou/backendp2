@@ -13,7 +13,8 @@ class ConnectionManager:
 
     def disconnect(self, websocket, tenant_id: int, room_id: str):
         if tenant_id in self.active_connections and room_id in self.active_connections[tenant_id]:
-            self.active_connections[tenant_id][room_id].remove(websocket)
+            if websocket in self.active_connections[tenant_id][room_id]:
+                self.active_connections[tenant_id][room_id].remove(websocket)
             if not self.active_connections[tenant_id][room_id]:
                 del self.active_connections[tenant_id][room_id]
             if not self.active_connections[tenant_id]:
@@ -24,13 +25,21 @@ class ConnectionManager:
 
     async def broadcast(self, message: dict, tenant_id: int, room_id: str):
         if tenant_id in self.active_connections and room_id in self.active_connections[tenant_id]:
-            for connection in self.active_connections[tenant_id][room_id]:
-                await connection.send_json(message)
+            for connection in self.active_connections[tenant_id][room_id].copy():
+                try:
+                    await connection.send_json(message)
+                except Exception as e:
+                    print(f"Error sending to websocket: {e}")
+                    self.disconnect(connection, tenant_id, room_id)
 
     async def broadcast_all_tenants(self, message: dict, room_id: str):
         for tenant_id in self.active_connections:
             if room_id in self.active_connections[tenant_id]:
-                for connection in self.active_connections[tenant_id][room_id]:
-                    await connection.send_json(message)
+                for connection in self.active_connections[tenant_id][room_id].copy():
+                    try:
+                        await connection.send_json(message)
+                    except Exception as e:
+                        print(f"Error sending to websocket: {e}")
+                        self.disconnect(connection, tenant_id, room_id)
 
 manager = ConnectionManager()
