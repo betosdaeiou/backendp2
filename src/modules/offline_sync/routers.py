@@ -289,7 +289,8 @@ def sincronizar_incidente_completo(
                     db,
                     t.IdUsuario,
                     "Nuevo Siniestro (Sync Offline)",
-                    f"Se sincronizó el incidente #{nuevo_incidente.id} desde un reporte offline."
+                    f"Se sincronizó el incidente #{nuevo_incidente.id} desde un reporte offline.",
+                    background_tasks=background_tasks
                 )
         except Exception as e_notif:
             print(f"[Offline-Sync] Error notificando talleres: {e_notif}")

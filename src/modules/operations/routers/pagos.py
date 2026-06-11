@@ -9,7 +9,7 @@ from src.shared.notificacion_util import crear_notificacion
 
 import os
 import stripe
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 import datetime
@@ -98,9 +98,18 @@ def create_stripe_checkout(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+from src.broker.manager import manager
+
+async def broadcast_ws_event(tenant_id: int | None, room_id: str, payload: dict):
+    if tenant_id is None:
+        await manager.broadcast_all_tenants(payload, room_id)
+    else:
+        await manager.broadcast(payload, tenant_id, room_id)
+
 @router.post("/{incidente_id}/directo", response_model=PagoOut)
 def pago_directo(
     incidente_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -162,16 +171,26 @@ def pago_directo(
             db,
             taller_user_id,
             "Confirmar Recepción de Pago",
-            f"El conductor indica que realizó el pago directo de Bs. {monto_total} por el incidente #{incidente_id}. Por favor confirma la recepción."
+            f"El conductor indica que realizó el pago directo de Bs. {monto_total} por el incidente #{incidente_id}. Por favor confirma la recepción.",
+            background_tasks=background_tasks
         )
     except Exception as e_notif:
         print(f"[Notificación] Error al notificar taller: {e_notif}")
+
+    # Notificar por WebSockets a los talleres
+    background_tasks.add_task(
+        broadcast_ws_event,
+        current_user.tenant_id,
+        "talleres",
+        {"action": "estado_actualizado", "incidente_id": incidente.id, "estado": incidente.estado}
+    )
 
     return nuevo_pago
 
 @router.post("/{incidente_id}/confirmar-directo", response_model=PagoOut)
 def confirmar_pago_directo(
     incidente_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -243,10 +262,19 @@ def confirmar_pago_directo(
                 db,
                 conductor_user_id,
                 "Pago Confirmado",
-                f"El taller ha confirmado la recepción de tu pago de Bs. {pago.monto_total} por el incidente #{incidente_id}. ¡Servicio finalizado!"
+                f"El taller ha confirmado la recepción de tu pago de Bs. {pago.monto_total} por el incidente #{incidente_id}. ¡Servicio finalizado!",
+                background_tasks=background_tasks
             )
     except Exception as e_notif:
         print(f"[Notificación] Error al notificar conductor: {e_notif}")
+
+    # Notificar por WebSockets al conductor
+    background_tasks.add_task(
+        broadcast_ws_event,
+        current_user.tenant_id,
+        "conductores",
+        {"action": "estado_actualizado", "incidente_id": incidente.id, "estado": incidente.estado}
+    )
 
     return pago
 
@@ -254,6 +282,7 @@ def confirmar_pago_directo(
 def confirmar_pago_stripe(
     session_id: str,
     incidente_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -297,10 +326,19 @@ def confirmar_pago_stripe(
                     db,
                     taller_user_id,
                     "Pago Recibido (Stripe)",
-                    f"Se ha procesado exitosamente el pago de Bs. {pago.monto_total} por el incidente #{pago.incidente_id}."
+                    f"Se ha procesado exitosamente el pago de Bs. {pago.monto_total} por el incidente #{pago.incidente_id}.",
+                    background_tasks=background_tasks
                 )
             except Exception as e_notif:
                 print(f"[Notificación] Error al notificar taller: {e_notif}")
+
+            # Notificar por WebSockets a los talleres
+            background_tasks.add_task(
+                broadcast_ws_event,
+                current_user.tenant_id,
+                "talleres",
+                {"action": "estado_actualizado", "incidente_id": incidente.id, "estado": incidente.estado}
+            )
 
             return pago
         else:

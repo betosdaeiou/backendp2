@@ -59,9 +59,17 @@ def _init_firebase():
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-def crear_notificacion(db: Session, usuario_id: int, titulo: str, descripcion: str):
+async def _broadcast_ws(tenant_id, room_id, payload):
+    from src.broker.manager import manager
+    if tenant_id:
+        await manager.broadcast(payload, tenant_id, room_id)
+    else:
+        await manager.broadcast_all_tenants(payload, room_id)
+
+def crear_notificacion(db: Session, usuario_id: int, titulo: str, descripcion: str, background_tasks = None):
     """
     Crea una notificación en la base de datos y envía push via FCM si hay token.
+    Opcionalmente, emite la notificación por WebSockets usando background_tasks.
     """
     fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -85,6 +93,20 @@ def crear_notificacion(db: Session, usuario_id: int, titulo: str, descripcion: s
     db.add(nueva_notificacion)
     db.commit()
     db.refresh(nueva_notificacion)
+
+    # Emitir por WebSockets si se provee background_tasks
+    if background_tasks:
+        background_tasks.add_task(
+            _broadcast_ws,
+            tenant_id,
+            f"user_{usuario_id}",
+            {
+                "action": "nueva_notificacion",
+                "titulo": titulo,
+                "descripcion": descripcion,
+                "notificacion_id": nueva_notificacion.id
+            }
+        )
 
     # Enviar push si el usuario tiene token FCM registrado
     if usuario and usuario.fcm_token:

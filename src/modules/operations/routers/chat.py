@@ -168,7 +168,7 @@ def enviar_mensaje_personal(
             db, destinatario_id,
             "Nuevo mensaje personal",
             f"{nombre_remitente}: {payload.contenido[:80]}"
-        )
+        , background_tasks=background_tasks)
     except Exception:
         pass
 

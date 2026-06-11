@@ -260,7 +260,7 @@ def reportar_incidente(
                 t.IdUsuario, 
                 "Nuevo Siniestro Reportado", 
                 f"Se ha reportado un incidente #{nuevo_incidente.id}. Revisa las solicitudes pendientes para ofrecer una cotización."
-            )
+            , background_tasks=background_tasks)
     except Exception as e_notif:
         print(f"[Notificación] Error al notificar talleres: {e_notif}")
 
@@ -703,7 +703,7 @@ def solicitar_cotizacion(
                 taller.IdUsuario,
                 "Solicitud de Cotización Directa",
                 f"El conductor {current_user.Nombre or 'Conductor'} te ha solicitado una cotización para el incidente #{incidente_id}."
-            )
+            , background_tasks=background_tasks)
             
         if current_user.tenant_id:
             from src.modules.saas.models import Tenant
@@ -714,7 +714,7 @@ def solicitar_cotizacion(
                     tenant.IdUsuario,
                     "Solicitud de Cotización Directa",
                     f"El conductor {current_user.Nombre or 'Conductor'} ha solicitado una cotización al taller {taller.Nombre if taller else 'desconocido'}."
-                )
+                , background_tasks=background_tasks)
 
         # Enviar también un mensaje de chat automático al dueño del taller
         if taller and taller.IdUsuario:
@@ -782,7 +782,7 @@ def ofrecer_cotizacion(
             conductor_user_id,
             "Nueva Cotización Recibida",
             f"El taller {cotizacion.taller.Nombre} ha enviado una oferta de Bs. {cotizacion.monto} para tu incidente #{incidente_id}."
-        )
+        , background_tasks=background_tasks)
     except Exception as e_notif:
         print(f"[Notificación] Error al notificar conductor: {e_notif}")
 
@@ -830,7 +830,7 @@ def rechazar_cotizacion(
             conductor_user_id,
             "Cotización Rechazada",
             f"El taller {cotizacion.taller.Nombre} no está disponible para atender tu incidente #{incidente_id}."
-        )
+        , background_tasks=background_tasks)
     except Exception as e_notif:
         print(f"[Notificación] Error al notificar conductor de rechazo: {e_notif}")
 
@@ -899,7 +899,7 @@ def aceptar_cotizacion(
             taller_user_id,
             "Cotización Aceptada",
             f"¡Felicidades! Tu oferta para el incidente #{incidente.id} ha sido aceptada. El conductor te espera."
-        )
+        , background_tasks=background_tasks)
     except Exception as e_notif:
         print(f"[Notificación] Error al notificar taller: {e_notif}")
 
@@ -1015,7 +1015,7 @@ def asignar_mecanicos_incidente(
                 m.id, # El id de Mecanico es el IdUsuario
                 "Nuevo Trabajo Asignado",
                 f"Se te ha asignado al incidente #{incidente.id}. Revisa tus mantenimientos."
-            )
+            , background_tasks=background_tasks)
     except Exception as e_notif:
         print(f"[Notificación] Error al notificar mecánicos: {e_notif}")
 
@@ -1078,7 +1078,7 @@ def actualizar_estado_mantenimiento(
             conductor_user_id,
             f"Actualización de tu Incidente #{incidente.id}",
             msg
-        )
+        , background_tasks=background_tasks)
     except Exception as e_notif:
         print(f"[Notificación] Error al notificar conductor: {e_notif}")
 
@@ -1237,7 +1237,8 @@ def enviar_mensaje_chat(
             crear_notificacion(
                 db, uid,
                 f"Nuevo mensaje - Incidente #{incidente_id}",
-                f"{nombre_remitente} ({rol_remitente}): {payload.contenido[:80]}"
+                f"{nombre_remitente} ({rol_remitente}): {payload.contenido[:80]}",
+                background_tasks=background_tasks
             )
         except Exception:
             pass
@@ -1283,7 +1284,7 @@ def actualizar_estado_incidente(
             incidente.vehiculoconductor.conductor.IdUsuario,
             "Estado Actualizado",
             f"Tu incidente #{incidente.id} cambió de estado a: {payload.nuevo_estado}"
-        )
+        , background_tasks=background_tasks)
 
     # Broadcast via WS a la sala del incidente
     background_tasks.add_task(
