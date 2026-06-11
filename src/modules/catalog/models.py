@@ -45,7 +45,7 @@ class Conductor(Base):
 
     usuario = relationship("Usuario", back_populates="conductor")
     vehiculos = relationship("Vehiculo", secondary="VehiculoConductor", back_populates="conductores")
-    vehiculo_conductores = relationship("VehiculoConductor", back_populates="conductor")
+    vehiculo_conductores = relationship("VehiculoConductor", back_populates="conductor", overlaps="vehiculos")
 
     @property
     def Nombre(self):
@@ -70,8 +70,8 @@ class Vehiculo(Base):
     Poliza = Column(String(100))
     Categoria = Column(String(100))
     Año = Column(Integer)
-    conductores = relationship("Conductor", secondary="VehiculoConductor", back_populates="vehiculos")
-    vehiculo_conductores = relationship("VehiculoConductor", back_populates="vehiculo")
+    conductores = relationship("Conductor", secondary="VehiculoConductor", back_populates="vehiculos", overlaps="vehiculo_conductores")
+    vehiculo_conductores = relationship("VehiculoConductor", back_populates="vehiculo", overlaps="conductores,vehiculos")
 
 
 class VehiculoConductor(Base):
@@ -82,8 +82,8 @@ class VehiculoConductor(Base):
     conductor_id = Column(Integer, ForeignKey('Conductor.IdUsuario', ondelete="CASCADE"), nullable=False)
     vehiculo_id = Column(Integer, ForeignKey('Vehiculo.Id', ondelete="CASCADE"), nullable=False)
 
-    conductor = relationship("Conductor", back_populates="vehiculo_conductores")
-    vehiculo = relationship("Vehiculo", back_populates="vehiculo_conductores")
+    conductor = relationship("Conductor", back_populates="vehiculo_conductores", overlaps="conductores,vehiculos")
+    vehiculo = relationship("Vehiculo", back_populates="vehiculo_conductores", overlaps="conductores,vehiculos")
     incidentes = relationship("Incidente", back_populates="vehiculoconductor")
 
 

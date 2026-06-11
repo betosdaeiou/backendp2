@@ -81,7 +81,7 @@ mecanicos_router = APIRouter(prefix="/mecanicos", tags=["Mecanicos"])
 
 from datetime import datetime, time
 
-@mecanicos_router.get("/")
+@mecanicos_router.get("")
 def get_mecanicos_by_taller(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     taller = db.query(Taller).filter(Taller.IdUsuario == current_user.Id).first()
     
@@ -122,7 +122,7 @@ def get_mecanicos_by_taller(db: Session = Depends(get_db), current_user: Usuario
         })
     return result
 
-@mecanicos_router.post("/", response_model=MecanicoOut, status_code=status.HTTP_201_CREATED)
+@mecanicos_router.post("", response_model=MecanicoOut, status_code=status.HTTP_201_CREATED)
 def create_mecanico(request: Request, background_tasks: BackgroundTasks, mecanico_data: MecanicoRegistro, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     taller = db.query(Taller).filter(Taller.IdUsuario == current_user.Id).first()
     if not taller:
